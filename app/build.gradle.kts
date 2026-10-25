@@ -29,3 +29,7 @@ chaquopy {
         // pip { install("flask") }
     }
 }
+
+dependencies {
+    implementation("com.google.android.material:material:1.12.0")
+}
