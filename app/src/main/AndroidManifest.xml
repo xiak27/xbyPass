@@ -10,6 +10,7 @@
     <application
         android:label="手机服务器"
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
         <activity
