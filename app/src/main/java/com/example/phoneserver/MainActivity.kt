@@ -3,450 +3,500 @@ package com.example.phoneserver
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.graphics.Color
-import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
-import android.util.TypedValue
-import android.view.Gravity
-import android.view.View
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.R as MR
-import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.card.MaterialCardView
-import com.google.android.material.color.DynamicColors
-import com.google.android.material.color.MaterialColors
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.snackbar.Snackbar
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
+import android.os.Handler
+import android.os.Looper
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import java.io.File
 
-class MainActivity : AppCompatActivity() {
-    private lateinit var header: TextView
-    private lateinit var body: FrameLayout
-    private lateinit var nav: BottomNavigationView
-    private lateinit var prefs: SharedPreferences
-    private var project: String? = null
-    private var curDir: File? = null
-    private var logView: TextView? = null
-    private var sCard: MaterialCardView? = null
-    private var sIcon: ImageView? = null
-    private var sTitle: TextView? = null
-    private var sSub: TextView? = null
-    private var toggleBtn: MaterialButton? = null
-    private val tabs = listOf(
-        "服务器" to R.drawable.ic_server, "文件" to R.drawable.ic_folder,
-        "终端" to R.drawable.ic_terminal, "导入" to R.drawable.ic_download)
-
+class MainActivity : ComponentActivity() {
     override fun onCreate(b: Bundle?) {
-        DynamicColors.applyToActivityIfAvailable(this)
+        enableEdgeToEdge()
         super.onCreate(b)
         Core.init(this)
-        prefs = getSharedPreferences("ps", MODE_PRIVATE)
-        project = prefs.getString("project", null)?.takeIf { File(Core.root, it).isDirectory }
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-
-        val rootView = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        header = tv("", MR.style.TextAppearance_Material3_TitleLarge, color(MR.attr.colorPrimary)).apply {
-            gravity = Gravity.CENTER
-            textSize = 24f
-            setPadding(0, dp(20), 0, dp(12))
-        }
-        rootView.addView(header, LinearLayout.LayoutParams(-1, -2))
-        body = FrameLayout(this)
-        rootView.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
-        nav = BottomNavigationView(this)
-        tabs.forEachIndexed { i, t -> nav.menu.add(0, i, i, t.first).setIcon(t.second) }
-        nav.setOnItemSelectedListener { show(it.itemId); true }
-        rootView.addView(nav, LinearLayout.LayoutParams(-1, -2))
-        setContentView(rootView)
-        Core.listener = { refresh() }
-        show(0)
+        setContent { PhoneServerTheme { App() } }
     }
+}
 
-    override fun onDestroy() {
-        Core.listener = null
-        super.onDestroy()
+@Composable
+fun PhoneServerTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val ctx = LocalContext.current
+    val scheme = when {
+        Build.VERSION.SDK_INT >= 31 && dark -> dynamicDarkColorScheme(ctx)
+        Build.VERSION.SDK_INT >= 31 -> dynamicLightColorScheme(ctx)
+        dark -> darkColorScheme()
+        else -> lightColorScheme()
     }
+    MaterialTheme(colorScheme = scheme, content = content)
+}
 
-    // ---------- 通用小部件 ----------
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-    private fun color(attr: Int) = MaterialColors.getColor(this, attr, 0)
-    private fun snack(s: String) = Snackbar.make(body, s, Snackbar.LENGTH_SHORT).setAnchorView(nav).show()
+fun copyText(ctx: Context, s: String) {
+    (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+        .setPrimaryClip(ClipData.newPlainText("url", s))
+}
 
-    private fun ripple(): Int {
-        val v = TypedValue()
-        theme.resolveAttribute(android.R.attr.selectableItemBackground, v, true)
-        return v.resourceId
+// ---------- 通用组件 ----------
+@Composable
+fun Cd(color: Color = MaterialTheme.colorScheme.surfaceContainer, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = color)
+    ) { Column(Modifier.padding(20.dp), content = content) }
+}
+
+@Composable
+fun Page(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            title,
+            Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 12.dp),
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Medium
+        )
+        content()
+        Spacer(Modifier.height(16.dp))
     }
+}
 
-    private fun tv(t: String, style: Int = MR.style.TextAppearance_Material3_BodyMedium, col: Int = 0) =
-        TextView(this).apply {
-            text = t
-            setTextAppearance(style)
-            if (col != 0) setTextColor(col)
-        }
-
-    private fun page() = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(16), dp(4), dp(16), dp(16))
+@Composable
+fun Info(label: String, value: String, onClick: (() -> Unit)? = null) {
+    Column(
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 10.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
 
-    private fun box() = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(16), dp(20), dp(16))
-    }
-
-    private fun card(bg: Int = 0): MaterialCardView {
-        val c = MaterialCardView(this, null, MR.attr.materialCardViewFilledStyle)
-        c.radius = dp(24).toFloat()
-        if (bg != 0) c.setCardBackgroundColor(bg)
-        c.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
-        return c
-    }
-
-    private fun gap(h: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(h)) }
-
-    private fun button(t: String, style: Int = 0, f: () -> Unit): MaterialButton {
-        val b = MaterialButton(this, null, if (style == 0) MR.attr.materialButtonStyle else style)
-        b.text = t
-        b.setOnClickListener { f() }
-        return b
-    }
-
-    private fun btnRow(vararg bs: View) = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        bs.forEachIndexed { i, b ->
-            addView(b, LinearLayout.LayoutParams(0, -2, 1f).apply { if (i > 0) marginStart = dp(8) })
-        }
-    }
-
-    private fun field(hint: String, value: String = "", number: Boolean = false, secret: Boolean = false): TextInputLayout {
-        val til = TextInputLayout(this, null, MR.attr.textInputOutlinedStyle)
-        til.hint = hint
-        val et = TextInputEditText(til.context)
-        et.setText(value)
-        et.setSingleLine(true)
-        if (number) et.inputType = InputType.TYPE_CLASS_NUMBER
-        if (secret) et.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        til.addView(et)
-        til.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) }
-        return til
-    }
-
-    private val TextInputLayout.value: String get() = editText?.text?.toString() ?: ""
-
-    private fun infoRow(label: String, value: String, click: (() -> Unit)? = null): LinearLayout {
-        val r = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), 0, dp(8))
-        }
-        r.addView(tv(label, MR.style.TextAppearance_Material3_TitleSmall))
-        r.addView(tv(value, MR.style.TextAppearance_Material3_BodyMedium, color(MR.attr.colorOnSurfaceVariant)))
-        if (click != null) {
-            r.setBackgroundResource(ripple())
-            r.setOnClickListener { click() }
-        }
-        return r
-    }
-
-    private fun logCard(): MaterialCardView {
-        val c = card()
-        val l = box()
-        l.addView(tv("日志", MR.style.TextAppearance_Material3_TitleMedium))
-        l.addView(gap(8))
-        logView = tv("", MR.style.TextAppearance_Material3_BodySmall).apply {
-            typeface = Typeface.MONOSPACE
-            setTextIsSelectable(true)
-        }
-        l.addView(logView)
-        c.addView(l)
-        return c
-    }
-
-    private fun ask(title: String, ok: (String) -> Unit) {
-        val til = field(title)
-        val wrap = FrameLayout(this).apply { setPadding(dp(24), dp(8), dp(24), 0); addView(til) }
-        MaterialAlertDialogBuilder(this).setTitle(title).setView(wrap)
-            .setPositiveButton("确定") { _, _ -> val s = til.value.trim(); if (s.isNotEmpty()) ok(s) }
-            .setNegativeButton("取消", null).show()
-    }
-
-    private fun copy(text: String) {
-        (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("url", text))
-        snack("已复制")
-    }
-
-    // ---------- 切换页面 ----------
-    private fun show(i: Int) {
-        nav.menu.getItem(i).isChecked = true
-        header.text = tabs[i].first
-        logView = null; sCard = null; sIcon = null; sTitle = null; sSub = null; toggleBtn = null
-        body.removeAllViews()
-        body.addView(when (i) { 0 -> serverPage(); 1 -> filesPage(); 2 -> termPage(); else -> importPage() })
-        refresh()
-    }
-
-    private fun refresh() {
-        logView?.let {
-            val txt = synchronized(Core.logBuf) { Core.logBuf.toString() }.takeLast(6000)
-            if (it.text.toString() != txt) it.text = txt
-        }
-        val run = Core.running
-        sCard?.setCardBackgroundColor(color(if (run) MR.attr.colorPrimaryContainer else MR.attr.colorErrorContainer))
-        val fg = color(if (run) MR.attr.colorOnPrimaryContainer else MR.attr.colorOnErrorContainer)
-        sTitle?.setTextColor(fg)
-        sSub?.setTextColor(fg)
-        sIcon?.setImageResource(if (run) R.drawable.ic_server else R.drawable.ic_warning)
-        sIcon?.setColorFilter(fg)
-        sTitle?.text = if (run) "服务运行中" else "服务未启动"
-        val u = urlText()
-        sSub?.text = if (run) Core.status + (if (u.isNotEmpty()) "\n" + u else "") else Core.status
-        toggleBtn?.text = if (run) "停止服务" else "启动服务"
-    }
-
-    private fun urlText(): String =
-        if (Core.running) Core.ips().joinToString("\n") { "http://$it:${Core.port}" }
-            .ifEmpty { "http://127.0.0.1:${Core.port}" }
-        else ""
-
-    // ---------- 服务器页 ----------
-    private fun serverPage(): View {
-        val p = page()
-        val sc = card()
-        val sr = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(24), dp(20), dp(24))
-        }
-        sIcon = ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(16) }
-        }
-        val st = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        sTitle = tv("", MR.style.TextAppearance_Material3_TitleLarge)
-        sSub = tv("", MR.style.TextAppearance_Material3_BodyMedium).apply { setTextIsSelectable(true) }
-        st.addView(sTitle)
-        st.addView(sSub)
-        sr.addView(sIcon)
-        sr.addView(st, LinearLayout.LayoutParams(0, -2, 1f))
-        sc.addView(sr)
-        sCard = sc
-        p.addView(sc)
-
-        val dir = project?.let { File(Core.root, it) }
-        val ic = card()
-        val il = box()
-        il.addView(infoRow("项目", project ?: "未选择，点这里选择") { chooseProject() })
-        val cmd = field("启动命令",
-            prefs.getString("cmd:$project", null) ?: (dir?.let { Core.defaultCmd(it, 8080) } ?: ""))
-        val port = field("端口（要和脚本里的一致）", prefs.getInt("port:$project", 8080).toString(), number = true)
-        il.addView(cmd)
-        il.addView(port)
-        il.addView(gap(8))
-        il.addView(infoRow("运行环境", "Python 3.11（已内置，缺的依赖启动时自动安装）"))
-        ic.addView(il)
-        p.addView(ic)
-
-        toggleBtn = button("启动服务") {
-            if (Core.running) Core.stop()
-            else {
-                val d = dir ?: return@button snack("请先选择项目")
-                val pt = port.value.toIntOrNull() ?: 8080
-                prefs.edit().putString("cmd:$project", cmd.value).putInt("port:$project", pt).apply()
-                startForegroundService(Intent(this, ServerService::class.java))
-                Core.start(d, cmd.value, pt)
+@Composable
+fun LogCard(tick: Int) {
+    val txt = synchronized(Core.logBuf) { Core.logBuf.toString() }.takeLast(8000)
+    val sc = rememberScrollState()
+    LaunchedEffect(txt.length) { sc.scrollTo(sc.maxValue) }
+    Cd {
+        Text("日志", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(sc)) {
+            SelectionContainer {
+                Text(
+                    if (txt.isEmpty()) "（暂无输出）" else txt,
+                    fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp
+                )
             }
         }
-        p.addView(toggleBtn)
-        p.addView(gap(8))
-        p.addView(button("复制链接", MR.attr.materialButtonOutlinedStyle) { copy(urlText()) })
-        p.addView(gap(12))
-        p.addView(logCard())
-        return ScrollView(this).apply { addView(p) }
     }
+}
 
-    private fun chooseProject() {
-        val names = Core.root.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
-        if (names.isEmpty()) return snack("还没有项目，先去“导入”")
-        MaterialAlertDialogBuilder(this).setTitle("选择项目")
-            .setItems(names.toTypedArray()) { _, i ->
-                project = names[i]
-                prefs.edit().putString("project", names[i]).apply()
-                curDir = null
-                show(0)
-            }.show()
+@Composable
+fun NameDialog(title: String, dismiss: () -> Unit, ok: (String) -> Unit) {
+    var v by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(title) },
+        text = { OutlinedTextField(v, { v = it }, singleLine = true) },
+        confirmButton = { TextButton(onClick = { if (v.isNotBlank()) { ok(v.trim()); dismiss() } }) { Text("确定") } },
+        dismissButton = { TextButton(onClick = dismiss) { Text("取消") } }
+    )
+}
+
+@Composable
+fun ChooseDialog(onPick: (String) -> Unit, dismiss: () -> Unit) {
+    val names = Core.root.listFiles()?.filter { it.isDirectory }?.map { it.name }?.sorted() ?: emptyList()
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text("选择项目") },
+        text = {
+            if (names.isEmpty()) Text("还没有项目，先去“导入”页")
+            else Column { names.forEach { n -> TextButton(onClick = { onPick(n) }) { Text(n) } } }
+        },
+        confirmButton = { TextButton(onClick = dismiss) { Text("关闭") } }
+    )
+}
+
+// ---------- 主界面 ----------
+@Composable
+fun App() {
+    val ctx = LocalContext.current
+    val prefs = remember { ctx.getSharedPreferences("ps", Context.MODE_PRIVATE) }
+    var tick by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) {
+        Core.listener = { tick++ }
+        onDispose { Core.listener = null }
     }
-
-    // ---------- 文件页 ----------
-    private fun fileRow(icon: String, name: String, click: () -> Unit, lc: (() -> Unit)? = null) =
-        tv("$icon  $name", MR.style.TextAppearance_Material3_BodyLarge).apply {
-            setPadding(dp(20), dp(14), dp(20), dp(14))
-            setBackgroundResource(ripple())
-            setOnClickListener { click() }
-            if (lc != null) setOnLongClickListener { lc(); true }
-        }
-
-    private fun filesPage(): View {
-        val p = page()
-        val name = project
-        if (name == null) {
-            p.addView(tv("先选择或导入一个项目", MR.style.TextAppearance_Material3_BodyLarge))
-            return p
-        }
-        val base = File(Core.root, name)
-        if (curDir == null || !curDir!!.path.startsWith(base.path)) curDir = base
-        val dir = curDir!!
-        val pc = card()
-        val pl = box()
-        pl.addView(tv(dir.path.removePrefix(Core.root.path), MR.style.TextAppearance_Material3_BodyMedium))
-        pc.addView(pl)
-        p.addView(pc)
-        p.addView(btnRow(
-            button("新建文件", MR.attr.materialButtonOutlinedStyle) {
-                ask("文件名") { n -> File(dir, n).apply { parentFile?.mkdirs() }.writeText(""); show(1) }
-            },
-            button("新建文件夹", MR.attr.materialButtonOutlinedStyle) {
-                ask("文件夹名") { n -> File(dir, n).mkdirs(); show(1) }
-            }))
-        p.addView(gap(12))
-        val lc = card()
-        val ll = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
-        if (dir != base) ll.addView(fileRow("⬆", "..", { curDir = dir.parentFile; show(1) }))
-        dir.listFiles()?.sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))?.forEach { f ->
-            ll.addView(fileRow(if (f.isDirectory) "📁" else "📄", f.name,
-                { if (f.isDirectory) { curDir = f; show(1) } else openFile(f) },
-                { confirmDelete(f) }))
-        }
-        lc.addView(ll)
-        p.addView(lc)
-        p.addView(tv("点文件编辑，长按删除", MR.style.TextAppearance_Material3_BodySmall, color(MR.attr.colorOnSurfaceVariant)))
-        return ScrollView(this).apply { addView(p) }
+    var tab by remember { mutableIntStateOf(0) }
+    var project by remember {
+        mutableStateOf(prefs.getString("project", null)?.takeIf { File(Core.root, it).isDirectory })
     }
-
-    private fun confirmDelete(f: File) {
-        MaterialAlertDialogBuilder(this).setTitle("删除 ${f.name}？")
-            .setPositiveButton("删除") { _, _ -> f.deleteRecursively(); show(1) }
-            .setNegativeButton("取消", null).show()
+    var choosing by remember { mutableStateOf(false) }
+    val snack = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val say: (String) -> Unit = { s -> scope.launch { snack.showSnackbar(s) } }
+    val setProject: (String) -> Unit = { n ->
+        project = n
+        prefs.edit().putString("project", n).apply()
     }
-
-    private fun openFile(f: File) {
-        if (f.length() > 1_000_000) return snack("文件太大，不能编辑")
-        val bytes = f.readBytes()
-        if (bytes.any { it == 0.toByte() }) return snack("二进制文件，不能编辑")
-        header.text = f.name
-        val p = page()
-        val ec = card()
-        val ed = EditText(this).apply {
-            setText(String(bytes))
-            typeface = Typeface.MONOSPACE
-            textSize = 13f
-            minLines = 14
-            gravity = Gravity.TOP or Gravity.START
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(dp(20), dp(16), dp(20), dp(16))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        }
-        ec.addView(ed)
-        p.addView(ec)
-        p.addView(btnRow(
-            button("保存") { f.writeText(ed.text.toString()); snack("已保存") },
-            button("返回", MR.attr.materialButtonOutlinedStyle) { show(1) }))
-        body.removeAllViews()
-        body.addView(ScrollView(this).apply { addView(p) })
-    }
-
-    // ---------- 终端页 ----------
-    private fun termPage(): View {
-        val p = page()
-        val pj = project
-        val cc = card()
-        val cl = box()
-        cl.addView(tv("工作目录：" + (pj ?: "（未选择项目）"), MR.style.TextAppearance_Material3_BodyMedium))
-        val cmd = field("命令", "")
-        cl.addView(cmd)
-        cl.addView(tv("例如：python app.py、pip install requests、ls",
-            MR.style.TextAppearance_Material3_BodySmall, color(MR.attr.colorOnSurfaceVariant)))
-        cc.addView(cl)
-        p.addView(cc)
-        p.addView(btnRow(
-            button("运行") {
-                val d = pj?.let { File(Core.root, it) } ?: Core.root
-                val s = cmd.value
-                cmd.editText?.setText("")
-                Core.log("\n$ $s\n")
-                Thread { val r = Core.runLine(d, s); Core.log("[退出码 $r]\n") }.start()
-            },
-            button("中断", MR.attr.materialButtonOutlinedStyle) { Core.interrupt() },
-            button("清空", MR.attr.materialButtonOutlinedStyle) {
-                synchronized(Core.logBuf) { Core.logBuf.setLength(0) }
-                refresh()
-            }))
-        p.addView(gap(12))
-        p.addView(logCard())
-        return ScrollView(this).apply { addView(p) }
-    }
-
-    // ---------- 导入页 ----------
-    private fun importPage(): View {
-        val p = page()
-        val c = card()
-        val l = box()
-        l.addView(tv("从 GitHub 导入", MR.style.TextAppearance_Material3_TitleMedium))
-        val repo = field("owner/repo 或 https://github.com/owner/repo")
-        val tok = field("访问令牌（私有仓库才需要，可留空）", secret = true)
-        val st = tv("", MR.style.TextAppearance_Material3_BodyMedium)
-        l.addView(repo)
-        l.addView(tok)
-        l.addView(gap(8))
-        l.addView(st)
-        l.addView(tv("重新导入同名项目会覆盖原有文件。",
-            MR.style.TextAppearance_Material3_BodySmall, color(MR.attr.colorOnSurfaceVariant)))
-        c.addView(l)
-        p.addView(c)
-        p.addView(button("导入") {
-            val s = repo.value
-            val t = tok.value
-            st.text = "下载中…"
-            Thread {
-                try {
-                    val name = Core.importRepo(s, t)
-                    runOnUiThread {
-                        project = name
-                        prefs.edit().putString("project", name).apply()
-                        curDir = null
-                        snack("已导入 $name")
-                        show(0)
-                    }
-                } catch (e: Exception) {
-                    runOnUiThread { st.text = "失败：" + e.message }
+    val tabs = listOf(
+        "服务器" to Icons.Filled.Home,
+        "文件" to Icons.AutoMirrored.Filled.List,
+        "终端" to Icons.Filled.Build,
+        "导入" to Icons.Filled.Add
+    )
+    Scaffold(
+        snackbarHost = { SnackbarHost(snack) },
+        bottomBar = {
+            NavigationBar {
+                tabs.forEachIndexed { i, t ->
+                    NavigationBarItem(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        icon = { Icon(t.second, contentDescription = t.first) },
+                        label = { Text(t.first) },
+                        alwaysShowLabel = false
+                    )
                 }
-            }.start()
-        })
-        p.addView(gap(8))
-        p.addView(button("新建空项目", MR.attr.materialButtonOutlinedStyle) {
-            ask("项目名") { n ->
-                File(Core.root, n).mkdirs()
-                project = n
-                prefs.edit().putString("project", n).apply()
-                curDir = null
-                show(0)
             }
-        })
-        return ScrollView(this).apply { addView(p) }
+        }
+    ) { pad ->
+        Box(Modifier.padding(pad).imePadding()) {
+            when (tab) {
+                0 -> ServerPage(project, prefs, { choosing = true }, say, tick)
+                1 -> FilesPage(project, say)
+                2 -> TermPage(project, tick)
+                else -> ImportPage({ n -> setProject(n); tab = 0; say("已打开项目 $n") })
+            }
+        }
     }
+    if (choosing) ChooseDialog(onPick = { setProject(it); choosing = false }, dismiss = { choosing = false })
+}
+
+// ---------- 服务器页 ----------
+@Composable
+fun ServerPage(project: String?, prefs: SharedPreferences, pick: () -> Unit, say: (String) -> Unit, tick: Int) {
+    val ctx = LocalContext.current
+    val cs = MaterialTheme.colorScheme
+    val running = Core.running
+    val dir = project?.let { File(Core.root, it) }
+    var cmd by remember(project) {
+        mutableStateOf(prefs.getString("cmd:$project", null) ?: (dir?.let { Core.defaultCmd(it, 8080) } ?: ""))
+    }
+    var port by remember(project) { mutableStateOf(prefs.getInt("port:$project", 8080).toString()) }
+    val urls = if (running)
+        Core.ips().map { "http://$it:${Core.port}" }.ifEmpty { listOf("http://127.0.0.1:${Core.port}") }
+    else emptyList()
+
+    Page("服务器") {
+        Cd(color = if (running) cs.primaryContainer else cs.errorContainer) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (running) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                    contentDescription = null, modifier = Modifier.size(32.dp)
+                )
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text(if (running) "服务运行中" else "服务未启动", style = MaterialTheme.typography.titleLarge)
+                    Text(Core.status, style = MaterialTheme.typography.bodyMedium)
+                    urls.forEach { u ->
+                        Text(
+                            u,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clickable { copyText(ctx, u); say("已复制 $u") }
+                                .padding(top = 6.dp)
+                        )
+                    }
+                }
+            }
+        }
+        Cd {
+            Info("项目", project ?: "未选择，点这里选择", pick)
+            OutlinedTextField(
+                cmd, { cmd = it }, Modifier.fillMaxWidth(),
+                label = { Text("启动命令") }, singleLine = true
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                port, { port = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(),
+                label = { Text("端口（要和脚本里的一致）") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
+            Info("运行环境", "Python 3.11（已内置），缺的依赖启动时自动安装")
+        }
+        Button(
+            onClick = {
+                if (Core.running) Core.stop()
+                else if (dir == null) say("请先选择项目")
+                else {
+                    val p = port.toIntOrNull() ?: 8080
+                    prefs.edit().putString("cmd:$project", cmd).putInt("port:$project", p).apply()
+                    ctx.startForegroundService(Intent(ctx, ServerService::class.java))
+                    Core.start(dir, cmd, p)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = if (running) ButtonDefaults.buttonColors(containerColor = cs.error, contentColor = cs.onError)
+            else ButtonDefaults.buttonColors()
+        ) { Text(if (running) "停止服务" else "启动服务", fontSize = 16.sp) }
+        FilledTonalButton(
+            onClick = {
+                if (urls.isEmpty()) say("服务还没启动")
+                else { copyText(ctx, urls.joinToString("\n")); say("已复制链接") }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        ) { Text("复制链接", fontSize = 16.sp) }
+        LogCard(tick)
+    }
+}
+
+// ---------- 文件页 ----------
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun FileRow(icon: String, name: String, click: () -> Unit, lc: (() -> Unit)?) {
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClick = click, onLongClick = lc)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(icon, fontSize = 20.sp)
+        Spacer(Modifier.width(14.dp))
+        Text(name, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+fun FilesPage(project: String?, say: (String) -> Unit) {
+    if (project == null) Page("文件") { Cd { Text("先去“导入”页导入或新建一个项目") } }
+    else FilesBody(project, say)
+}
+
+@Composable
+fun FilesBody(project: String, say: (String) -> Unit) {
+    var editing by remember { mutableStateOf<File?>(null) }
+    var cur by remember(project) { mutableStateOf<File?>(null) }
+    var ver by remember { mutableIntStateOf(0) }
+    var newKind by remember { mutableIntStateOf(0) }   // 0 无，1 文件，2 文件夹
+    var del by remember { mutableStateOf<File?>(null) }
+    val base = File(Core.root, project)
+    val dir = cur ?: base
+    val ed = editing
+
+    if (ed != null) {
+        Editor(ed, { editing = null; ver++ }, say)
+    } else {
+        val files = remember(dir, ver) {
+            (dir.listFiles()?.toList() ?: emptyList())
+                .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
+        }
+        Page("文件") {
+            Cd { Text(dir.path.removePrefix(Core.root.path), style = MaterialTheme.typography.bodyMedium) }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilledTonalButton(onClick = { newKind = 1 }, modifier = Modifier.weight(1f).height(52.dp)) { Text("新建文件") }
+                FilledTonalButton(onClick = { newKind = 2 }, modifier = Modifier.weight(1f).height(52.dp)) { Text("新建文件夹") }
+            }
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Column(Modifier.padding(vertical = 8.dp)) {
+                    if (dir != base) FileRow("⬆", "..", { cur = dir.parentFile }, null)
+                    files.forEach { f ->
+                        FileRow(
+                            if (f.isDirectory) "📁" else "📄", f.name,
+                            {
+                                if (f.isDirectory) cur = f
+                                else if (f.length() > 1_000_000) say("文件太大，不能编辑")
+                                else if (runCatching { f.readBytes().any { it == 0.toByte() } }.getOrDefault(true))
+                                    say("二进制文件，不能编辑")
+                                else editing = f
+                            },
+                            { del = f }
+                        )
+                    }
+                    if (files.isEmpty()) Text("（空）", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text("点文件编辑，长按删除", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    if (newKind != 0) NameDialog(if (newKind == 1) "文件名" else "文件夹名", { newKind = 0 }) { n ->
+        val f = File(dir, n)
+        if (newKind == 1) { f.parentFile?.mkdirs(); f.writeText("") } else f.mkdirs()
+        ver++
+    }
+    del?.let { f ->
+        AlertDialog(
+            onDismissRequest = { del = null },
+            title = { Text("删除 ${f.name}？") },
+            confirmButton = { TextButton(onClick = { f.deleteRecursively(); del = null; ver++ }) { Text("删除") } },
+            dismissButton = { TextButton(onClick = { del = null }) { Text("取消") } }
+        )
+    }
+}
+
+@Composable
+fun Editor(f: File, close: () -> Unit, say: (String) -> Unit) {
+    BackHandler(onBack = close)
+    var text by remember(f) { mutableStateOf(runCatching { f.readText() }.getOrDefault("")) }
+    Page(f.name) {
+        OutlinedTextField(
+            text, { text = it },
+            Modifier.fillMaxWidth().heightIn(min = 360.dp),
+            textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
+            shape = RoundedCornerShape(20.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(
+                onClick = { f.writeText(text); say("已保存") },
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) { Text("保存") }
+            FilledTonalButton(onClick = close, modifier = Modifier.weight(1f).height(52.dp)) { Text("返回") }
+        }
+    }
+}
+
+// ---------- 终端页 ----------
+@Composable
+fun TermPage(project: String?, tick: Int) {
+    var cmd by remember { mutableStateOf("") }
+    Page("终端") {
+        Cd {
+            Text("工作目录：" + (project ?: "（未选择项目）"), style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                cmd, { cmd = it }, Modifier.fillMaxWidth(),
+                label = { Text("命令") },
+                supportingText = { Text("例如 python app.py、pip install requests、ls") },
+                singleLine = true
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = {
+                    val d = project?.let { File(Core.root, it) } ?: Core.root
+                    val s = cmd
+                    cmd = ""
+                    Core.log("\n$ $s\n")
+                    Thread { val r = Core.runLine(d, s); Core.log("[退出码 $r]\n") }.start()
+                },
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) { Text("运行") }
+            FilledTonalButton(onClick = { Core.interrupt() }, modifier = Modifier.weight(1f).height(52.dp)) { Text("中断") }
+            OutlinedButton(
+                onClick = { synchronized(Core.logBuf) { Core.logBuf.setLength(0) }; Core.update() },
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) { Text("清空") }
+        }
+        LogCard(tick)
+    }
+}
+
+// ---------- 导入页 ----------
+@Composable
+fun ImportPage(onDone: (String) -> Unit) {
+    var repo by remember { mutableStateOf("") }
+    var tok by remember { mutableStateOf("") }
+    var msg by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var showNew by remember { mutableStateOf(false) }
+    val h = remember { Handler(Looper.getMainLooper()) }
+    Page("导入") {
+        Cd {
+            Text("从 GitHub 导入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                repo, { repo = it }, Modifier.fillMaxWidth(),
+                label = { Text("owner/repo 或 GitHub 链接") }, singleLine = true
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                tok, { tok = it }, Modifier.fillMaxWidth(),
+                label = { Text("访问令牌（私有仓库才需要）") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation()
+            )
+            if (msg.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(msg, style = MaterialTheme.typography.bodyMedium)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("重新导入同名项目会覆盖原有文件。", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Button(
+            onClick = {
+                busy = true
+                msg = "下载中…"
+                val s = repo
+                val t = tok
+                Thread {
+                    try {
+                        val n = Core.importRepo(s, t)
+                        h.post { busy = false; msg = ""; onDone(n) }
+                    } catch (e: Exception) {
+                        h.post { busy = false; msg = "失败：" + e.message }
+                    }
+                }.start()
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        ) { Text("导入", fontSize = 16.sp) }
+        FilledTonalButton(onClick = { showNew = true }, modifier = Modifier.fillMaxWidth().height(56.dp)) {
+            Text("新建空项目", fontSize = 16.sp)
+        }
+    }
+    if (showNew) NameDialog("项目名", { showNew = false }) { n -> File(Core.root, n).mkdirs(); onDone(n) }
 }
