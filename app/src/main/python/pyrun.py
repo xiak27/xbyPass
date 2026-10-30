@@ -1,4 +1,4 @@
-import sys, os, io, re, json, runpy, shlex, zipfile, traceback, threading
+import sys, os, io, re, json, runpy, shlex, zipfile, traceback, threading, warnings
 import urllib.request, importlib
 import importlib.metadata as md
 
@@ -22,6 +22,7 @@ class Out(io.TextIOBase):
 
 
 def _prep(cwd, site, cb):
+    warnings.simplefilter("ignore")
     sys.stdout = sys.stderr = Out(cb)
     os.makedirs(site, exist_ok=True)
     os.chdir(cwd)
@@ -102,7 +103,7 @@ def _install_one(spec, site, done):
             wheel = f
             break
     if wheel is None:
-        print("  %s 没有纯 Python 版本，无法在手机上安装（可在 app/build.gradle.kts 里预装）" % name)
+        print("  跳过 %s：没有手机版（多半是可选的加速库）" % name)
         return
     zipfile.ZipFile(io.BytesIO(_get(wheel["url"]))).extractall(site)
     importlib.invalidate_caches()
@@ -126,10 +127,11 @@ def _install_all(reqs, site):
 
 def _read_reqs(path):
     out = []
-    for line in open(path, encoding="utf-8", errors="ignore"):
-        line = line.split("#")[0].split(";")[0].strip()
-        if line and not line.startswith("-"):
-            out.append(line)
+    with open(path, encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            line = line.split("#")[0].split(";")[0].strip()
+            if line and not line.startswith("-"):
+                out.append(line)
     return out
 
 
