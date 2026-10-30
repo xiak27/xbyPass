@@ -38,7 +38,11 @@ object Core {
     private fun py() = Python.getInstance().getModule("pyrun")
     private fun sink() = Consumer<String> { log(it) }
 
-    fun update() { main.post { listener?.invoke() } }
+    private val pending = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun update() {
+        if (pending.compareAndSet(false, true))
+            main.postDelayed({ pending.set(false); listener?.invoke() }, 120)
+    }
 
     fun log(s: String) {
         synchronized(logBuf) {
