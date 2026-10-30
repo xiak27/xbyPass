@@ -6,13 +6,22 @@ TID = None
 
 
 class Out(io.TextIOBase):
+    encoding = "utf-8"
+    errors = "replace"
+
     def __init__(self, cb):
         self.cb = cb
 
     def writable(self):
         return True
 
+    def isatty(self):
+        return False
+
     def write(self, s):
+        # 只接受文本；收到 bytes 就报错，click 才会把它当文本流
+        if not isinstance(s, str):
+            raise TypeError("write() argument must be str, not %s" % type(s).__name__)
         if s:
             self.cb.accept(s)
         return len(s)
